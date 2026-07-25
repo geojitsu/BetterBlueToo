@@ -34,7 +34,7 @@ struct VehicleControlButton: View {
     @State private var inProgressAction: VehicleAction?
     @State private var message = ButtonMessage.empty
     @State private var currentTask: Task<Void, Never>?
-    @State private var currentActionIndex: Array.Index = 0
+    @State private var currentActionIndex: Int = 0
     @State private var animatedDots = ""
     @State private var dotsTimer: Timer?
     /// Full error context for the most recent failed action. Drives the
@@ -311,6 +311,25 @@ struct VehicleControlButton: View {
     @MainActor
     private func handleActionError(_ error: Error) {
         stopDotsAnimation()
+
+        // Verification timeout is NOT a failure — the command was accepted
+        // and usually completes; the backend just hasn't reflected it yet
+        // (issue #83: "commands complete but the app says they failed").
+        // Show a soft note and skip the error card / Show Last Error path.
+        if let apiError = error as? APIError, apiError.errorType == .statusVerificationTimeout {
+            let softMessage = ButtonMessage.warning("Sent — awaiting confirmation")
+            message = softMessage
+            inProgressAction = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 7.0) {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    if message == softMessage {
+                        message = .empty
+                    }
+                }
+            }
+            currentTask = nil
+            return
+        }
 
         if let apiError = error as? APIError {
             switch apiError.errorType {

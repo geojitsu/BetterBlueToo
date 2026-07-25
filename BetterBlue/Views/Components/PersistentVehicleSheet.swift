@@ -1098,12 +1098,16 @@ struct PersistentVehicleSheet: View {
                     for: bbVehicle, modelContext: context, cached: false
                 )
             }
+            // Charging state propagates slowest through the backends —
+            // give it a longer window (matches ChargingButton).
             try await bbVehicle.waitForStatusChange(
                 modelContext: context,
                 condition: { $0.evStatus?.charging == start },
                 statusMessageUpdater: { msg in
                     Task { @MainActor in chargingStatusText = msg }
-                }
+                },
+                maxAttempts: 5,
+                retryDelaySeconds: 15
             )
         } catch {
             handleError(error, action: start ? "Start Charging \(bbVehicle.displayName)" : "Stop Charging \(bbVehicle.displayName)")
@@ -1155,6 +1159,13 @@ struct PersistentVehicleSheet: View {
     // MARK: - Error wiring
 
     private func handleError(_ error: Error, action: String) {
+        // Verification timeout is NOT a failure — the command was accepted
+        // and usually completes; the backend just hasn't reflected it yet
+        // (issue #83). No red banner: the next status refresh settles it.
+        if let apiError = error as? APIError, apiError.errorType == .statusVerificationTimeout {
+            BBLogger.info(.app, "\(action): command sent, confirmation pending")
+            return
+        }
         let message: String
         if let apiError = error as? APIError {
             // Route through the friendly-message mapping so the
@@ -1216,6 +1227,11 @@ struct PersistentVehicleSheet: View {
             return error.message
         case .regionNotSupported:
             return "This region is not yet supported"
+        case .statusVerificationTimeout:
+            // Normally unreachable — handleError early-returns for this
+            // type (soft state, no banner) — but keep a sane message in
+            // case another path routes it here.
+            return "Command sent — the vehicle hasn't confirmed the change yet"
         }
     }
 
@@ -1716,8 +1732,18 @@ struct VehicleSheetPager: View {
             // .bottom). Map taps in the dead area above a short card
             // are eaten by the ScrollView — acceptable trade-off
             // versus the post-swipe height jump it replaces.
-            let maxCard = maxCardHeight(geo: geo)
-            let scrollViewHeight = maxCard + chromeOuterInset + maxErrorOverhead
+            // Size the shared scroll view to the tallest SINGLE card —
+            // its own height plus its own error banner — rather than the
+            // max card height plus the max error overhead taken
+            // independently across vehicles. Maxing the two components
+            // separately over-reserves height whenever the tallest card
+            // and the card showing an error banner are *different*
+            // vehicles; that surplus then sits as empty space under every
+            // (top-aligned, bottom-pinned) card, floating the whole sheet
+            // up off the bottom of the screen.
+            let scrollViewHeight = (bbVehicles
+                .map { cardHeight(for: $0.vin, geo: geo) + (errorOverheads[$0.vin] ?? 0) }
+                .max() ?? 0) + chromeOuterInset
             VStack(spacing: 0) {
                 Spacer(minLength: 0)
                 pagerScrollView(geo: geo)
@@ -1762,18 +1788,6 @@ struct VehicleSheetPager: View {
 
     private var maxNaturalHeight: CGFloat {
         naturalHeights.values.max() ?? 0
-    }
-
-    private var maxErrorOverhead: CGFloat {
-        errorOverheads.values.max() ?? 0
-    }
-
-    /// Maximum card height across all vehicles for the current geo
-    /// + detent + drag state. Drives the ScrollView frame so the
-    /// tallest card fits.
-    private func maxCardHeight(geo: GeometryProxy) -> CGFloat {
-        let perCard = bbVehicles.map { cardHeight(for: $0.vin, geo: geo) }
-        return perCard.max() ?? 0
     }
 
     /// Per-vehicle card height — driven by THAT vehicle's own

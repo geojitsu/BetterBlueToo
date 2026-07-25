@@ -324,18 +324,25 @@ extension BBAccount {
         }
     }
 
-    /// Clears the cached session (auth token + API client) and forces a
-    /// fresh login. Use when the server-side session has gone stale but
-    /// the locally-stored token hasn't expired yet, so the app keeps
-    /// failing with no way to recover short of deleting the account
-    /// (BetterBlue#71). Credentials, device ID, and refresh token are
-    /// preserved.
+    /// Clears the cached session and forces a fresh login. Use when the
+    /// server-side session has gone stale but the locally-stored token
+    /// hasn't expired yet, so the app keeps failing with no way to recover
+    /// short of deleting the account (BetterBlue#71).
+    ///
+    /// This is a FULL reset: the remember-me token and device id are
+    /// dropped too. They're session artifacts the backends regenerate on a
+    /// clean login — and a stale rotated rmToken (Kia US) or device
+    /// registration is exactly what made "Reset Session" insufficient for
+    /// an expired session (BetterBlue#84). Credentials and the refresh
+    /// token (the EU accounts' long-lived credential) are preserved.
     @MainActor
     func resetSession(modelContext: ModelContext) async throws {
         BBLogger.info(.auth, "BBAccount: resetting session for \(username)")
         authToken = nil
         api = nil
         pendingMFAError = nil
+        rememberMeToken = nil
+        deviceId = nil
         do {
             try modelContext.save()
         } catch {
@@ -420,6 +427,7 @@ extension BBAccount {
              .serverError,
              .concurrentRequest,
              .regionNotSupported,
+             .statusVerificationTimeout,
              .general:
             return false
         }
@@ -432,6 +440,24 @@ extension BBAccount {
         clearAPICache()
         self.api = nil
         self.authToken = nil
+
+        // If the stored session artifacts themselves are the problem (dead
+        // credentials, or a re-login that already failed), drop the remember-me
+        // token and device id too — otherwise every retry re-logs-in against the
+        // same bad artifacts and fails identically, which on the 1/min Live
+        // Activity wakeup is the background drain in BetterBlue#88. The backends
+        // regenerate both on a clean login (this is the full reset that made
+        // "Reset Session" sufficient in BetterBlue#84). Transient session errors
+        // keep the artifacts so a plain re-login can recover.
+        switch error.errorType {
+        case .invalidCredentials, .failedRetryLogin:
+            rememberMeToken = nil
+            deviceId = nil
+            try? modelContext.save()
+        default:
+            break
+        }
+
         try await initialize(modelContext: modelContext)
 
         guard let api, let authToken else {
@@ -799,10 +825,13 @@ extension BBAccount {
         }
     }
 
-    /// Returns true if the account's API supports EV trip details
+    /// Returns true if the account's API supports EV trip details.
+    /// Delegates to the client (like `supportsMFA`) so new brand support in
+    /// BetterBlueKit lights up without app changes. False until the client
+    /// is initialized; the UI re-evaluates once startup init completes.
+    @MainActor
     var supportsEVTripDetails: Bool {
-        // Currently only Hyundai USA supports trip details
-        brandEnum == .hyundai && regionEnum == .usa
+        api?.supportsEVTripDetails() ?? false
     }
 }
 

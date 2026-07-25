@@ -17,6 +17,10 @@ struct WatchComplicationEntry: TimelineEntry {
     let vehicleName: String?
     let rangeText: String?
     let batteryPercentage: Double?
+    /// Drives the ring's gap glyph (bolt vs fuel pump).
+    var isElectric: Bool = true
+    /// User-selected ring tint; `.automatic` follows the watch face.
+    var tint: WatchComplicationColor = .automatic
 }
 
 struct WatchComplicationProvider: TimelineProvider {
@@ -55,7 +59,12 @@ struct WatchComplicationProvider: TimelineProvider {
                 sortBy: [SortDescriptor(\.sortOrder)]
             ))
 
-            guard let vehicle = vehicles.first else {
+            // The watch app's Settings can pin the complication to a
+            // specific vehicle; otherwise the first visible one. Live
+            // read — this extension process outlives settings changes.
+            let selectedVIN = AppSettings.liveWatchComplicationVIN()
+            let vehicle = vehicles.first(where: { $0.vin == selectedVIN }) ?? vehicles.first
+            guard let vehicle else {
                 return WatchComplicationEntry(date: Date(), vehicleName: nil, rangeText: nil, batteryPercentage: nil)
             }
 
@@ -85,7 +94,9 @@ struct WatchComplicationProvider: TimelineProvider {
                 date: Date(),
                 vehicleName: vehicle.displayName,
                 rangeText: rangeText,
-                batteryPercentage: percentage
+                batteryPercentage: percentage,
+                isElectric: vehicle.fuelType.hasElectricCapability,
+                tint: AppSettings.liveWatchComplicationColor()
             )
         } catch {
             BBLogger.error(.app, "WatchComplicationProvider: \(error)")
@@ -114,6 +125,72 @@ struct VehicleStatusComplication: Widget {
     }
 }
 
+/// Battery-complication-style ring: `.accessoryCircularCapacity` — the
+/// SAME style as the system watch battery complication, so the arc FILLS
+/// proportionally instead of the plain accessoryCircular dot-on-a-track
+/// marker. No gap glyph in this style, which also stops the unit text
+/// from crowding an icon. Tintable from the watch app's Settings.
+struct WatchRingGauge: View {
+    enum Center { case percentage, range }
+    let entry: WatchComplicationEntry
+    let center: Center
+
+    /// "203 mi" → ("203", "mi") so the unit renders small under the
+    /// number inside the ring; non-splittable text passes through whole.
+    private var rangeParts: (String, String?) {
+        guard let range = entry.rangeText else { return ("--", nil) }
+        let parts = range.split(separator: " ", maxSplits: 1)
+        guard parts.count == 2 else { return (range, nil) }
+        return (String(parts[0]), String(parts[1]))
+    }
+
+    var body: some View {
+        if let percentage = entry.batteryPercentage {
+            gauge(percentage)
+        } else {
+            ZStack {
+                AccessoryWidgetBackground()
+                Image(systemName: "car.fill")
+                    .font(.title2)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func gauge(_ percentage: Double) -> some View {
+        let base = Gauge(value: percentage, in: 0 ... 100) {
+            EmptyView()
+        } currentValueLabel: {
+            switch center {
+            case .percentage:
+                Text("\(Int(percentage.rounded()))%")
+                    .font(.system(.body, design: .rounded))
+                    .minimumScaleFactor(0.6)
+            case .range:
+                let (value, unit) = rangeParts
+                VStack(spacing: 0) {
+                    Text(value)
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .minimumScaleFactor(0.5)
+                    if let unit {
+                        Text(unit.uppercased())
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .gaugeStyle(.accessoryCircularCapacity)
+        .widgetAccentable()
+
+        if let tint = entry.tint.color {
+            base.tint(tint)
+        } else {
+            base
+        }
+    }
+}
+
 struct VehicleStatusComplicationView: View {
     let entry: WatchComplicationEntry
     @Environment(\.widgetFamily) var family
@@ -121,21 +198,7 @@ struct VehicleStatusComplicationView: View {
     var body: some View {
         switch family {
         case .accessoryCircular:
-            ZStack {
-                if let percentage = entry.batteryPercentage {
-                    Gauge(value: percentage, in: 0...100) {
-                        Image(systemName: "car.fill")
-                    } currentValueLabel: {
-                        Text("\(Int(percentage))")
-                            .font(.system(.body, design: .rounded))
-                    }
-                    .gaugeStyle(.accessoryCircular)
-                } else {
-                    AccessoryWidgetBackground()
-                    Image(systemName: "car.fill")
-                        .font(.title2)
-                }
-            }
+            WatchRingGauge(entry: entry, center: .percentage)
         case .accessoryCorner:
             Image(systemName: "car.fill")
                 .font(.title2)
@@ -149,27 +212,57 @@ struct VehicleStatusComplicationView: View {
                     }
                 }
         case .accessoryRectangular:
-            HStack {
-                Image(systemName: "car.fill")
-                    .font(.title2)
-                VStack(alignment: .leading) {
+            // Mirrors the iOS 2x1 lock-screen widget: percentage ring
+            // beside the vehicle name and range.
+            HStack(spacing: 10) {
+                WatchRingGauge(entry: entry, center: .percentage)
+                VStack(alignment: .leading, spacing: 1) {
                     Text(entry.vehicleName ?? "BetterBlue")
                         .font(.headline)
+                        .lineLimit(1)
                     if let range = entry.rangeText {
                         Text(range)
                             .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
                 }
                 Spacer()
             }
         case .accessoryInline:
-            if let range = entry.rangeText {
-                Label(range, systemImage: "car.fill")
-            } else {
+            // Range and percentage together, dot-separated — whichever of
+            // the two is available ("250 mi · 82%", "82%", …).
+            let percentText = entry.batteryPercentage.map { "\(Int($0.rounded()))%" }
+            let parts = [entry.rangeText, percentText].compactMap(\.self)
+            if parts.isEmpty {
                 Label("BetterBlue", systemImage: "car.fill")
+            } else {
+                Label(parts.joined(separator: " · "), systemImage: "car.fill")
             }
         default:
             Image(systemName: "car.fill")
         }
+    }
+}
+
+// MARK: - Vehicle Range Complication
+
+/// Circular ring with the remaining RANGE in the center instead of the
+/// percentage. Its own kind so it sits alongside the existing percentage
+/// complication in the gallery — existing placements keep working and
+/// pick up the refreshed ring automatically.
+struct VehicleRangeComplication: Widget {
+    let kind = "com.betterblue.watch.range"
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: WatchComplicationProvider()) { entry in
+            WatchRingGauge(entry: entry, center: .range)
+                .containerBackground(for: .widget) {
+                    Color.clear
+                }
+        }
+        .configurationDisplayName("Vehicle Range")
+        .description("Battery or fuel ring with the remaining range")
+        .supportedFamilies([.accessoryCircular])
     }
 }

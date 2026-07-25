@@ -91,57 +91,59 @@ struct EVChargingProgressView: View {
 
     private var chargingProgressBar: some View {
         GeometryReader { geometry in
+            let width = geometry.size.width
+            // x of the charge-limit line, when a sub-100% limit is set.
+            let limitX: CGFloat? = targetSOC.flatMap { $0 < 100 ? width * ($0 / 100.0) : nil }
+
             ZStack(alignment: .leading) {
-                // Background
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.gray.opacity(0.2))
-                    .frame(height: 32)
+                // Track, a hatch over the won't-fill region beyond the
+                // limit, the masked rectangular fill, then the limit line.
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.gray.opacity(0.2))
+                        .frame(height: 32)
 
-                // Foreground progress
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(chargingColor)
-                    .frame(width: fillWidth(geometry.size.width), height: 32)
+                    if let limitX {
+                        DiagonalHatch(spacing: 6)
+                            .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                            .frame(width: max(0, width - limitX), height: 32)
+                            .clipped()
+                            .offset(x: limitX)
+                    }
 
-                // Target SOC indicator — filled "valley"/"mountain"
-                // half-discs pointing at the limit, clipped to the bar so
-                // it doesn't spill past the rounded edge near 99%. Hidden
-                // at 100%.
-                if let targetSOC, targetSOC < 100 {
-                    ChargeTargetMarker(
-                        centerX: geometry.size.width * (targetSOC / 100.0),
-                        radius: 8
-                    )
-                    .fill(Color.white)
-                    .shadow(color: .black.opacity(0.5), radius: 1, x: 0, y: 1)
-                    .frame(height: 32)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    Rectangle()
+                        .fill(chargingColor)
+                        .frame(width: fillWidth(width), height: 32)
+
+                    if let limitX {
+                        ChargeLimitLine()
+                            .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                            .frame(width: 1, height: 32)
+                            .offset(x: limitX - 0.5)
+                    }
                 }
+                .clipShape(RoundedRectangle(cornerRadius: 8))
 
-                // Time remaining (left), charge speed (right) — same
-                // fill-aware placement as the widget so each label sits
-                // over the green fill or the gray remainder rather than
-                // straddling the boundary.
-                if let timeRemaining = chargeTimeRemaining {
-                    Text(timeRemaining)
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.white)
-                        .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
-                        .padding(.leading, 12)
-                        .offset(x: fillFraction > 0.25 ? 0 : fillWidth(geometry.size.width))
-                }
-
+                // Charge speed — left-aligned over the fill.
                 if let speed = chargeSpeed {
                     Text(speed)
                         .font(.caption)
                         .fontWeight(.semibold)
                         .foregroundColor(.white)
                         .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
-                        .padding(.trailing, 12)
-                        .frame(
-                            width: fillFraction < 0.8 ? geometry.size.width : fillWidth(geometry.size.width),
-                            alignment: .trailing
-                        )
+                        .padding(.leading, 12)
+                }
+
+                // Time remaining — right-aligned to the limit line, or the
+                // bar's right edge when there's no limit.
+                if let timeRemaining = chargeTimeRemaining {
+                    Text(timeRemaining)
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white)
+                        .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
+                        .padding(.trailing, 8)
+                        .frame(width: limitX ?? width, alignment: .trailing)
                 }
             }
         }

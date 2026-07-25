@@ -248,7 +248,7 @@ struct VehicleCardView: View {
 
                 // Hide success indicator after 2 seconds
                 Task {
-                    try await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+                    try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
                     await MainActor.run {
                         showRefreshSuccess = false
                     }
@@ -336,6 +336,8 @@ struct VehicleCardView: View {
             error.message
         case .regionNotSupported:
             "This region is not yet supported"
+        case .statusVerificationTimeout:
+            "Command sent - the vehicle hasn't confirmed the change yet"
         }
     }
 }
