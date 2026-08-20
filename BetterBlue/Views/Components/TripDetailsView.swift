@@ -392,10 +392,10 @@ struct TripDetailsView: View {
 
     private func loadDetailedTripsForSelectedPeriod() async {
         guard supportsTripInfo, let account = bbVehicle.account else { return }
-        
+
         let tripsToFetch = tripsForSelectedPeriod.filter { detailedTrips[$0.startDate] == nil }
         guard !tripsToFetch.isEmpty else { return }
-        
+
         for trip in tripsToFetch {
             let date = trip.startDate
             do {
@@ -626,11 +626,11 @@ struct TripDetailRow: View {
                             .foregroundColor(.secondary)
                         Spacer()
                     }
-                    
+
                     if supportsTripInfo {
                         Divider()
                             .padding(.vertical, 4)
-                            
+
                         if let detailedTrips = detailedTrips {
                             if detailedTrips.isEmpty {
                                 Text("No individual trips found.")
@@ -703,7 +703,7 @@ struct TripInfoPillView: View {
                     .fontWeight(.medium)
             }
             .frame(width: 65, alignment: .leading)
-            
+
             VStack(alignment: .leading, spacing: 2) {
                 Text("Drive")
                     .font(.caption2)
@@ -714,7 +714,7 @@ struct TripInfoPillView: View {
                     .foregroundColor(.blue)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            
+
             VStack(alignment: .leading, spacing: 2) {
                 Text("Idle")
                     .font(.caption2)

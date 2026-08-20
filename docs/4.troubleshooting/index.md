@@ -51,8 +51,13 @@ SwiftData (unencrypted, CloudKit-synced). These three fields are now Keychain-ba
   rename (lightweight migration, no explicit migration plan required).
 - Computed properties `password`, `pin`, `serializedAuthToken` now read/write the iOS
   Keychain via `KeychainService` (`BetterBlue/Utility/KeychainService.swift`).
-- `migrateAccountCredentials(container:)` runs once at startup (guarded by
-  `UserDefaults` key `keychain_migration_v1_complete`) and sweeps all accounts.
+- `migrateAccountCredentials(container:)` runs when the model container is ready (guarded
+  by `UserDefaults` key `keychain_migration_v1_complete`) and sweeps all accounts.
+- `KeychainService.save()` returns success/failure. Migration clears each SwiftData
+  backing field only after its Keychain write succeeds, so failed writes retain plaintext
+  data for a retry instead of silently losing credentials.
+- All Keychain queries use the `group.com.betterblue.shared` access group for extension
+  sharing.
 - `BBAccount.removeAccount` now deletes the three Keychain items before removing the
   SwiftData record.
 - Schema version bumped to `1.0.10`.
