@@ -13,11 +13,11 @@ icon: 'i-heroicons-rocket-launch'
 
 ## Repository Setup
 
-The fork lives at `https://github.com/geojitsu/BetterBlue`.
+The fork lives at `https://github.com/geojitsu/BetterBlueToo`.
 
 ```bash
-git clone https://github.com/geojitsu/BetterBlue
-cd BetterBlue
+git clone https://github.com/geojitsu/BetterBlueToo
+cd BetterBlueToo
 git submodule update --init --recursive
 ```
 
@@ -53,10 +53,10 @@ xcodebuild -scheme BetterBlue \
 
 | File | Purpose |
 |---|---|
-| `BetterBlue/Models/BBAccount.swift` | SwiftData account model; credentials, API client lifecycle |
-| `BetterBlue/Models/BBVehicle.swift` | SwiftData vehicle model; status, presets, command methods |
+| `BetterBlue/Models/Account.swift` | SwiftData account model; Keychain credentials, auth lifecycle |
+| `BetterBlue/Models/Vehicle.swift` | SwiftData vehicle model; status, presets, command methods |
 | `BetterBlue/Models/ClimatePreset.swift` | Climate preset SwiftData model |
-| `BetterBlue/Utility/SharedModelContainer.swift` | SwiftData container setup shared across targets |
+| `BetterBlue/Models/SharedModelContainer.swift` | SwiftData container setup and credential migration |
 | `BetterBlue/Views/VehicleCardView.swift` | Primary card: status + action buttons (primary target for new UI) |
 | `BetterBlue/Views/Components/ClimateButton.swift` | Existing climate control UI — reference for preconditioning button pattern |
 | `BetterBlue/Views/Components/EVChargingProgressView.swift` | Battery meter component (redesign target) |

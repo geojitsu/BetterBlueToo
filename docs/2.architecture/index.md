@@ -6,19 +6,21 @@ icon: 'i-heroicons-cpu-chip'
 
 ## Overview
 
-This fork makes no changes to the upstream architecture. The three planned features are
-pure additions at the SwiftUI view layer and do not require modifications to BetterBlueKit,
-the SwiftData models (beyond the Keychain migration), or the App Group container setup.
+The fork follows upstream's layered architecture while adding its own SwiftUI features
+and the Keychain credential boundary. The current merge also adopts BetterBlueKit's
+EU/Canada API fixes, the capability-driven trip history API, the cached API client, and
+the shared App Intent command flow.
 
 The upstream architecture is documented in depth in the repository's `CLAUDE.md`.
 
-## Data Flow (Unchanged from Upstream)
+## Data Flow
 
 ```
 SwiftUI Views (BetterBlue app)
   | @Query / SwiftData
   v
 BBAccount / BBVehicle (SwiftData models)
+  | password, PIN, serialized auth token -> KeychainService
   | account.sendCommand() / account.refreshStatus()
   v
 CachedAPIClient -> APIClientFactory -> regional APIClient
@@ -29,6 +31,10 @@ Hyundai / Kia BlueLink cloud API
   v
 SwiftData persistence -> WidgetKit / ActivityKit refresh
 ```
+
+Routine re-authentication retains the `rememberMeToken` / `deviceId` trust anchors; only
+an explicit session reset clears them. See
+[Auth Session Recovery](/better-blue-too/api/guides/auth-session-recovery) for the full behavior.
 
 ## Key Patterns Used by This Fork
 
@@ -48,9 +54,19 @@ last status refresh. Always access via `safeLocation` guard; never force-unwrap.
 
 ### Credential security (Keychain migration)
 
-`BBAccount` currently stores `password`, `pin`, and `serializedAuthToken` as plain SwiftData
-fields. These must be migrated to the iOS Keychain before any distribution. The migration
-is the first task in the build sequence.
+`BBAccount` exposes `password`, `pin`, and `serializedAuthToken` as computed properties
+backed by `KeychainService`, migrated from plain SwiftData fields. See
+[Pitfall 4](/better-blue-too/troubleshooting#pitfall-4-keychain-migration-timing-resolved-in-task-001)
+for the full migration mechanics and caveats.
+
+### Capability-driven trip history
+
+`BBAccount` delegates trip-history support to BetterBlueKit. The UI first checks
+`supportedEVTripTypes`, then requests a summary or date-specific trip information through
+`fetchEVTripSummary` and `fetchEVTripInfo`. This keeps regional API differences in the
+client package rather than branching in the views. See
+[Account Auth and Trip History](/better-blue-too/api/account-auth-and-trip-history) for
+the API reference.
 
 ## Targets
 
