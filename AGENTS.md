@@ -56,8 +56,8 @@ The project consists of four targets sharing a common SwiftData container:
 
 #### SwiftData Models
 All models are in `BetterBlue/Models/`:
-- `BBAccount.swift` - User accounts with credentials and brand/region
-- `BBVehicle.swift` - Vehicle data with status, settings, and climate presets
+- `Account.swift` - `BBAccount`: user accounts with Keychain-backed credentials and brand/region
+- `Vehicle.swift` - `BBVehicle`: vehicle data with status, settings, and climate presets
 - `HTTPLog.swift` - HTTP request/response logging
 - `ClimatePreset.swift` - User-defined climate control presets
 

@@ -32,10 +32,9 @@ Hyundai / Kia BlueLink cloud API
 SwiftData persistence -> WidgetKit / ActivityKit refresh
 ```
 
-Routine re-authentication clears the in-memory session but retains the SwiftData
-`rememberMeToken` and `deviceId` trust anchors. Only the explicit session reset clears
-those anchors. Device registration, successful login, and MFA completion save the model
-context immediately so the next launch can reuse the trusted device state.
+Routine re-authentication retains the `rememberMeToken` / `deviceId` trust anchors; only
+an explicit session reset clears them. See
+[Auth Session Recovery](/better-blue-too/api/guides/auth-session-recovery) for the full behavior.
 
 ## Key Patterns Used by This Fork
 
@@ -56,18 +55,18 @@ last status refresh. Always access via `safeLocation` guard; never force-unwrap.
 ### Credential security (Keychain migration)
 
 `BBAccount` exposes `password`, `pin`, and `serializedAuthToken` as computed properties
-backed by `KeychainService`. The migration-only SwiftData fields retain their original
-column names with `@Attribute(originalName:)`, and are cleared only after a successful
-Keychain write. All Keychain queries use `group.com.betterblue.shared` so extensions can
-read the same credentials. `migrateAccountCredentials` runs when the container is ready,
-before the main view loads, with schema version `1.0.10`.
+backed by `KeychainService`, migrated from plain SwiftData fields. See
+[Pitfall 4](/better-blue-too/troubleshooting#pitfall-4-keychain-migration-timing-resolved-in-task-001)
+for the full migration mechanics and caveats.
 
 ### Capability-driven trip history
 
 `BBAccount` delegates trip-history support to BetterBlueKit. The UI first checks
 `supportedEVTripTypes`, then requests a summary or date-specific trip information through
 `fetchEVTripSummary` and `fetchEVTripInfo`. This keeps regional API differences in the
-client package rather than branching in the views.
+client package rather than branching in the views. See
+[Account Auth and Trip History](/better-blue-too/api/account-auth-and-trip-history) for
+the API reference.
 
 ## Targets
 
